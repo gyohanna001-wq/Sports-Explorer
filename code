@@ -1,0 +1,1234 @@
+
+import sys
+import time
+import requests
+
+from urllib.parse import quote
+
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QLabel, QLineEdit,
+    QPushButton, QVBoxLayout, QHBoxLayout,
+    QGridLayout, QListWidget, QListWidgetItem,
+    QFrame, QScrollArea, QMessageBox
+)
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap, QFont
+
+
+class SportsExplorer(QWidget):
+
+    API_URL = "https://www.thesportsdb.com/api/v1/json/123"
+
+    SPORTS = {
+        "Soccer": (
+            "⚽",
+            "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=600"
+        ),
+        "Basketball": (
+            "🏀",
+            "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=600"
+        ),
+        "Tennis": (
+            "🎾",
+            "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=600"
+        ),
+        "Baseball": (
+            "⚾",
+            "https://images.unsplash.com/photo-1508344928928-7165b0ce7a5e?w=600"
+        ),
+        "American Football": (
+            "🏈",
+            "https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=600"
+        ),
+        "Cricket": (
+            "🏏",
+            "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=600"
+        ),
+        "Rugby": (
+            "🏉",
+            "https://images.unsplash.com/photo-1517466787929-bc90951d0974?w=600"
+        ),
+        "Ice Hockey": (
+            "🏒",
+            "https://images.unsplash.com/photo-1580748141549-71748dbe0b9a?w=600"
+        ),
+        "Golf": (
+            "⛳",
+            "https://images.unsplash.com/photo-1535131749006-b7f58c99034b?w=600"
+        ),
+        "Volleyball": (
+            "🏐",
+            "https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=600"
+        )
+    }
+
+    POPULAR_PLAYERS = {
+        "Soccer": [
+            "Lionel Messi",
+            "Cristiano Ronaldo",
+            "Pelé",
+            "Kylian Mbappé",
+            "Neymar"
+        ],
+        "Basketball": [
+            "Michael Jordan",
+            "LeBron James",
+            "Stephen Curry",
+            "Kobe Bryant",
+            "Shaquille O'Neal"
+        ],
+        "Tennis": [
+            "Serena Williams",
+            "Roger Federer",
+            "Novak Djokovic",
+            "Rafael Nadal",
+            "Naomi Osaka"
+        ],
+        "Baseball": [
+            "Shohei Ohtani",
+            "Babe Ruth",
+            "Jackie Robinson",
+            "Mike Trout"
+        ],
+        "American Football": [
+            "Tom Brady",
+            "Patrick Mahomes",
+            "Jerry Rice",
+            "Peyton Manning"
+        ],
+        "Cricket": [
+            "Virat Kohli",
+            "Sachin Tendulkar",
+            "MS Dhoni",
+            "Ben Stokes"
+        ],
+        "Rugby": [
+            "Jonah Lomu",
+            "Siya Kolisi",
+            "Antoine Dupont",
+            "Richie McCaw"
+        ],
+        "Ice Hockey": [
+            "Wayne Gretzky",
+            "Sidney Crosby",
+            "Alex Ovechkin",
+            "Mario Lemieux"
+        ],
+        "Golf": [
+            "Tiger Woods",
+            "Rory McIlroy",
+            "Jack Nicklaus",
+            "Annika Sörenstam"
+        ],
+        "Volleyball": [
+            "Karch Kiraly",
+            "Giba",
+            "Zhu Ting",
+            "Wilfredo León"
+        ]
+    }
+
+    # All 30 NBA teams.
+    # These names are a fallback when the API
+    # does not return basketball teams.
+
+    NBA_TEAMS = [
+        "Atlanta Hawks",
+        "Boston Celtics",
+        "Brooklyn Nets",
+        "Charlotte Hornets",
+        "Chicago Bulls",
+        "Cleveland Cavaliers",
+        "Dallas Mavericks",
+        "Denver Nuggets",
+        "Detroit Pistons",
+        "Golden State Warriors",
+        "Houston Rockets",
+        "Indiana Pacers",
+        "LA Clippers",
+        "Los Angeles Lakers",
+        "Memphis Grizzlies",
+        "Miami Heat",
+        "Milwaukee Bucks",
+        "Minnesota Timberwolves",
+        "New Orleans Pelicans",
+        "New York Knicks",
+        "Oklahoma City Thunder",
+        "Orlando Magic",
+        "Philadelphia 76ers",
+        "Phoenix Suns",
+        "Portland Trail Blazers",
+        "Sacramento Kings",
+        "San Antonio Spurs",
+        "Toronto Raptors",
+        "Utah Jazz",
+        "Washington Wizards"
+    ]
+
+    COLORS = [
+        "#3478F6",
+        "#13B8C8",
+        "#FF8A42",
+        "#8064E9",
+        "#20A878",
+        "#E85D75",
+        "#E5A928",
+        "#398BD8",
+        "#17A6A0",
+        "#C05BD9"
+    ]
+
+    def __init__(self):
+
+        super().__init__()
+
+        self.current_sport = "Soccer"
+
+        self.api_cache = {}
+        self.image_cache = {}
+
+        self.last_api_request = 0
+        self.request_interval = 2.2
+
+        self.session = requests.Session()
+
+        self.session.headers.update({
+            "User-Agent": "SportsExplorer/1.0"
+        })
+
+        self.setWindowTitle("Sports Explorer")
+        self.resize(1250, 950)
+        self.setMinimumSize(1050, 800)
+
+        self.initUI()
+
+        self.load_sport_cards()
+        self.load_popular_players("Soccer")
+        self.load_sport_teams("Soccer")
+
+    # =====================================
+    # API REQUESTS
+    # =====================================
+
+    def sportsdb_get(self, endpoint, params=None):
+
+        cache_key = (
+            endpoint,
+            tuple(sorted((params or {}).items()))
+        )
+
+        if cache_key in self.api_cache:
+            return self.api_cache[cache_key]
+
+        elapsed = time.monotonic() - self.last_api_request
+
+        remaining = self.request_interval - elapsed
+
+        if remaining > 0:
+            time.sleep(remaining)
+
+        url = f"{self.API_URL}/{endpoint}"
+
+        response = self.session.get(
+            url,
+            params=params,
+            timeout=15
+        )
+
+        self.last_api_request = time.monotonic()
+
+        if response.status_code == 429:
+            raise RuntimeError(
+                "Too many API requests. "
+                "Please wait a minute before trying again."
+            )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                "The API returned an unexpected response."
+            )
+
+        self.api_cache[cache_key] = data
+
+        return data
+
+    # =====================================
+    # DOWNLOAD IMAGES
+    # =====================================
+
+    def download_image(self, url):
+
+        if not url:
+            return None
+
+        if url in self.image_cache:
+            return self.image_cache[url]
+
+        try:
+
+            response = self.session.get(
+                url,
+                timeout=12
+            )
+
+            response.raise_for_status()
+
+            pixmap = QPixmap()
+
+            if pixmap.loadFromData(response.content):
+
+                self.image_cache[url] = pixmap
+
+                return pixmap
+
+        except requests.RequestException:
+            pass
+
+        return None
+
+    # =====================================
+    # MAIN USER INTERFACE
+    # =====================================
+
+    def initUI(self):
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #132342;
+                color: #F5F8FF;
+                font-family: Arial;
+                font-size: 13px;
+            }
+
+            QLineEdit {
+                background-color: #20395F;
+                border: 2px solid #13B8C8;
+                border-radius: 10px;
+                padding: 12px;
+                color: white;
+            }
+
+            QLineEdit:focus {
+                border: 2px solid #FFD34E;
+            }
+
+            QPushButton {
+                color: white;
+                font-weight: bold;
+                border-radius: 9px;
+                padding: 10px;
+            }
+
+            QListWidget {
+                background-color: #20395F;
+                border: 2px solid #3478F6;
+                border-radius: 10px;
+                padding: 7px;
+            }
+
+            QListWidget::item {
+                padding: 11px;
+                border-radius: 6px;
+            }
+
+            QListWidget::item:selected {
+                background-color: #3478F6;
+            }
+
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+        """)
+
+        main = QVBoxLayout()
+
+        main.setContentsMargins(18, 14, 18, 12)
+        main.setSpacing(12)
+
+        # HEADER
+
+        header = QFrame()
+        header.setMinimumHeight(125)
+
+        header.setStyleSheet("""
+            QFrame {
+                background-color: #2457A6;
+                border: 2px solid #398BD8;
+                border-radius: 13px;
+            }
+        """)
+
+        header_layout = QVBoxLayout(header)
+
+        title = QLabel("🏆 SPORTS EXPLORER")
+
+        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QFont("Arial", 25, QFont.Bold))
+
+        subtitle = QLabel(
+            "Explore sports, teams, famous players and sporting events"
+        )
+
+        subtitle.setAlignment(Qt.AlignCenter)
+
+        subtitle.setStyleSheet(
+            "color: #E0F5FF; font-size: 14px;"
+        )
+
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle)
+
+        main.addWidget(header)
+
+        # SPORTS HEADING
+
+        sports_title = QLabel("⭐ CHOOSE A SPORT")
+
+        sports_title.setFont(
+            QFont("Arial", 15, QFont.Bold)
+        )
+
+        sports_title.setStyleSheet(
+            "color: #FFD34E;"
+        )
+
+        main.addWidget(sports_title)
+
+        # SPORTS GRID
+
+        self.sports_frame = QFrame()
+
+        self.sports_frame.setStyleSheet("""
+            QFrame {
+                background-color: #1A3154;
+                border: 2px solid #3478F6;
+                border-radius: 12px;
+            }
+        """)
+
+        self.sports_grid = QGridLayout(
+            self.sports_frame
+        )
+
+        self.sports_grid.setSpacing(10)
+
+        main.addWidget(self.sports_frame)
+
+        # SEARCH BAR
+
+        search_row = QHBoxLayout()
+
+        self.search_input = QLineEdit()
+
+        self.search_input.setPlaceholderText(
+            "Search for a team, e.g. Arsenal, Lakers, Barcelona..."
+        )
+
+        search_button = QPushButton("🔎 Search Teams")
+
+        search_button.setMinimumWidth(130)
+
+        search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3478F6;
+            }
+
+            QPushButton:hover {
+                background-color: #5595FF;
+            }
+        """)
+
+        search_button.clicked.connect(self.search_teams)
+
+        self.search_input.returnPressed.connect(
+            self.search_teams
+        )
+
+        search_row.addWidget(self.search_input)
+        search_row.addWidget(search_button)
+
+        main.addLayout(search_row)
+
+        # FAMOUS PLAYERS
+
+        players_title = QLabel(
+            "⭐ FEATURED SPORTS & FAMOUS PLAYERS"
+        )
+
+        players_title.setFont(
+            QFont("Arial", 15, QFont.Bold)
+        )
+
+        players_title.setStyleSheet(
+            "color: #FFD34E;"
+        )
+
+        main.addWidget(players_title)
+
+        self.players_scroll = QScrollArea()
+
+        self.players_scroll.setWidgetResizable(True)
+
+        self.players_scroll.setFixedHeight(180)
+
+        self.players_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
+        self.player_container = QWidget()
+
+        self.player_layout = QHBoxLayout(
+            self.player_container
+        )
+
+        self.player_layout.setAlignment(Qt.AlignLeft)
+        self.player_layout.setSpacing(12)
+
+        self.players_scroll.setWidget(
+            self.player_container
+        )
+
+        main.addWidget(self.players_scroll)
+
+        # LOWER PANELS
+
+        lower = QHBoxLayout()
+        lower.setSpacing(14)
+
+        # TEAMS PANEL
+
+        teams_frame = QFrame()
+
+        teams_frame.setStyleSheet("""
+            QFrame {
+                background-color: #1A3154;
+                border: 2px solid #3478F6;
+                border-radius: 12px;
+            }
+        """)
+
+        teams_layout = QVBoxLayout(teams_frame)
+
+        teams_heading = QLabel("🏆 TEAMS")
+
+        teams_heading.setFont(
+            QFont("Arial", 14, QFont.Bold)
+        )
+
+        teams_heading.setStyleSheet(
+            "color: #FFD34E;"
+        )
+
+        self.team_list = QListWidget()
+
+        self.team_list.itemClicked.connect(
+            self.show_team_details
+        )
+
+        teams_layout.addWidget(teams_heading)
+        teams_layout.addWidget(self.team_list)
+
+        # TEAM INFORMATION PANEL
+
+        info_frame = QFrame()
+
+        info_frame.setStyleSheet("""
+            QFrame {
+                background-color: #1A3154;
+                border: 2px solid #13B8C8;
+                border-radius: 12px;
+            }
+        """)
+
+        info_layout = QVBoxLayout(info_frame)
+
+        info_heading = QLabel("🏅 TEAM INFORMATION")
+
+        info_heading.setFont(
+            QFont("Arial", 14, QFont.Bold)
+        )
+
+        info_heading.setStyleSheet(
+            "color: #FFD34E;"
+        )
+
+        self.info_label = QLabel(
+            "Select a team to view its information."
+        )
+
+        self.info_label.setWordWrap(True)
+        self.info_label.setAlignment(Qt.AlignTop)
+
+        self.info_label.setStyleSheet("""
+            background-color: #20395F;
+            border: 1px solid #3478F6;
+            border-radius: 8px;
+            padding: 12px;
+        """)
+
+        self.logo_label = QLabel("Team logo")
+
+        self.logo_label.setAlignment(Qt.AlignCenter)
+        self.logo_label.setMinimumHeight(150)
+
+        self.logo_label.setStyleSheet("""
+            background-color: #20395F;
+            border: 1px solid #13B8C8;
+            border-radius: 8px;
+        """)
+
+        self.team_name_label = QLabel("")
+
+        self.team_name_label.setAlignment(Qt.AlignCenter)
+
+        self.team_name_label.setStyleSheet(
+            "color: #FFD34E; font-weight: bold;"
+        )
+
+        info_layout.addWidget(info_heading)
+        info_layout.addWidget(self.info_label)
+        info_layout.addWidget(self.logo_label)
+        info_layout.addWidget(self.team_name_label)
+
+        lower.addWidget(teams_frame, 1)
+        lower.addWidget(info_frame, 1)
+
+        main.addLayout(lower, 1)
+
+        # STATUS
+
+        self.status_label = QLabel(
+            "Welcome to Sports Explorer!"
+        )
+
+        self.status_label.setAlignment(Qt.AlignCenter)
+
+        self.status_label.setStyleSheet(
+            "color: #65D9E6; padding: 7px;"
+        )
+
+        main.addWidget(self.status_label)
+
+        self.setLayout(main)
+
+    # =====================================
+    # SPORT CARDS
+    # =====================================
+
+    def load_sport_cards(self):
+
+        for index, (sport, details) in enumerate(
+            self.SPORTS.items()
+        ):
+
+            emoji, image_url = details
+
+            card = QFrame()
+
+            card.setFixedSize(225, 88)
+            card.setCursor(Qt.PointingHandCursor)
+
+            card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: #20395F;
+                    border: 2px solid {self.COLORS[index]};
+                    border-radius: 10px;
+                }}
+            """)
+
+            card_layout = QVBoxLayout(card)
+
+            card_layout.setContentsMargins(5, 5, 5, 5)
+
+            photo = QLabel()
+
+            photo.setFixedHeight(53)
+            photo.setAlignment(Qt.AlignCenter)
+
+            photo.setStyleSheet(
+                "background-color: #29466D;"
+            )
+
+            pixmap = self.download_image(image_url)
+
+            if pixmap:
+
+                photo.setPixmap(
+                    pixmap.scaled(
+                        205, 53,
+                        Qt.IgnoreAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                )
+
+            else:
+
+                photo.setText(emoji)
+
+            name = QLabel(f"{emoji}  {sport}")
+
+            name.setAlignment(Qt.AlignCenter)
+
+            name.setStyleSheet(
+                "color: white; font-weight: bold;"
+            )
+
+            card_layout.addWidget(photo)
+            card_layout.addWidget(name)
+
+            card.mousePressEvent = (
+                lambda event, s=sport:
+                self.select_sport(s)
+            )
+
+            self.sports_grid.addWidget(
+                card,
+                index // 5,
+                index % 5
+            )
+
+    # =====================================
+    # SELECT A SPORT
+    # =====================================
+
+    def select_sport(self, sport):
+
+        self.current_sport = sport
+
+        self.search_input.clear()
+
+        self.team_list.clear()
+
+        self.clear_team_details()
+
+        self.load_popular_players(sport)
+
+        self.load_sport_teams(sport)
+
+    # =====================================
+    # LOAD TEAMS FOR SELECTED SPORT
+    # =====================================
+
+    def load_sport_teams(self, sport):
+
+        self.team_list.clear()
+
+        self.clear_team_details()
+
+        self.status_label.setText(
+            f"Loading {sport} teams..."
+        )
+
+        QApplication.processEvents()
+
+        team_dictionary = {}
+
+        try:
+
+            data = self.sportsdb_get(
+                "search_all_teams.php",
+                {"s": sport}
+            )
+
+            raw_teams = data.get("teams") or []
+
+            # FIX: Handle different API response formats.
+
+            if isinstance(raw_teams, dict):
+                raw_teams = [raw_teams]
+
+            elif isinstance(raw_teams, str):
+                raw_teams = [raw_teams]
+
+            if not isinstance(raw_teams, list):
+                raw_teams = []
+
+            for team in raw_teams:
+
+                # FIX: Strings do not have .get().
+                # Convert strings into team dictionaries.
+
+                if isinstance(team, str):
+
+                    team = {
+                        "strTeam": team,
+                        "strSport": sport
+                    }
+
+                if not isinstance(team, dict):
+                    continue
+
+                name = team.get("strTeam")
+
+                if name and isinstance(name, str):
+
+                    team_dictionary[name.lower()] = team
+
+        except RuntimeError as error:
+
+            self.status_label.setText(str(error))
+
+        except requests.RequestException as error:
+
+            self.status_label.setText(
+                f"API connection error: {error}"
+            )
+
+        # Add NBA fallback teams.
+
+        if sport == "Basketball":
+
+            for name in self.NBA_TEAMS:
+
+                if name.lower() not in team_dictionary:
+
+                    team_dictionary[name.lower()] = {
+                        "strTeam": name,
+                        "strSport": "Basketball",
+                        "strLeague": "NBA",
+                        "strCountry": "USA",
+                        "strDescriptionEN": (
+                            "Basketball team. "
+                            "More information may be available "
+                            "from TheSportsDB."
+                        )
+                    }
+
+        # Display teams.
+
+        sorted_teams = sorted(
+            team_dictionary.values(),
+            key=lambda team: team["strTeam"].lower()
+        )
+
+        for team in sorted_teams:
+
+            item = QListWidgetItem(
+                f"🏆 {team['strTeam']}"
+            )
+
+            item.setData(Qt.UserRole, team)
+
+            self.team_list.addItem(item)
+
+        if self.team_list.count() == 0:
+
+            self.status_label.setText(
+                f"No {sport} teams were found."
+            )
+
+        else:
+
+            self.status_label.setText(
+                f"Showing {self.team_list.count()} {sport} teams."
+            )
+
+    # =====================================
+    # FAMOUS PLAYER IMAGE LOOKUP
+    # =====================================
+
+    def get_player_image(self, player_name):
+
+        cache_key = ("player_image", player_name)
+
+        if cache_key in self.api_cache:
+            return self.api_cache[cache_key]
+
+        image_url = None
+
+        try:
+
+            title = quote(
+                player_name.replace(" ", "_")
+            )
+
+            response = self.session.get(
+                f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}",
+                timeout=12
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            image_url = (
+                data.get("thumbnail", {}).get("source")
+            )
+
+        except (
+            requests.RequestException,
+            ValueError
+        ):
+
+            pass
+
+        self.api_cache[cache_key] = image_url
+
+        return image_url
+
+    # =====================================
+    # DISPLAY FAMOUS PLAYERS
+    # =====================================
+
+    def load_popular_players(self, sport):
+
+        while self.player_layout.count():
+
+            item = self.player_layout.takeAt(0)
+
+            widget = item.widget()
+
+            if widget:
+                widget.deleteLater()
+
+        players = self.POPULAR_PLAYERS.get(
+            sport, []
+        )
+
+        for player in players:
+
+            card = QFrame()
+
+            card.setFixedSize(155, 150)
+
+            card.setStyleSheet("""
+                QFrame {
+                    background-color: #20395F;
+                    border: 2px solid #3478F6;
+                    border-radius: 10px;
+                }
+            """)
+
+            card_layout = QVBoxLayout(card)
+
+            card_layout.setContentsMargins(
+                6, 6, 6, 6
+            )
+
+            photo = QLabel("Loading photo...")
+
+            photo.setFixedSize(135, 98)
+
+            photo.setAlignment(Qt.AlignCenter)
+
+            photo.setStyleSheet("""
+                background-color: #132342;
+                color: #65D9E6;
+                border-radius: 6px;
+            """)
+
+            name = QLabel(player)
+
+            name.setAlignment(Qt.AlignCenter)
+            name.setWordWrap(True)
+
+            name.setStyleSheet("""
+                color: white;
+                font-weight: bold;
+                background-color: #2457A6;
+                border-radius: 5px;
+                padding: 4px;
+            """)
+
+            card_layout.addWidget(photo)
+            card_layout.addWidget(name)
+
+            self.player_layout.addWidget(card)
+
+            image_url = self.get_player_image(player)
+
+            if image_url:
+
+                pixmap = self.download_image(image_url)
+
+                if pixmap:
+
+                    photo.setPixmap(
+                        pixmap.scaled(
+                            photo.size(),
+                            Qt.KeepAspectRatio,
+                            Qt.SmoothTransformation
+                        )
+                    )
+
+                else:
+
+                    photo.setText("Photo unavailable")
+
+            else:
+
+                photo.setText("No photo found")
+
+        self.status_label.setText(
+            f"Showing famous {sport} players."
+        )
+
+    # =====================================
+    # SEARCH TEAMS
+    # =====================================
+
+    def search_teams(self):
+
+        query = self.search_input.text().strip()
+
+        if not query:
+
+            QMessageBox.warning(
+                self,
+                "Search",
+                "Please enter a team name."
+            )
+
+            return
+
+        self.team_list.clear()
+        self.clear_team_details()
+
+        self.status_label.setText(
+            "Searching for teams..."
+        )
+
+        QApplication.processEvents()
+
+        found_teams = {}
+
+        try:
+
+            data = self.sportsdb_get(
+                "searchteams.php",
+                {"t": query}
+            )
+
+            raw_teams = data.get("teams") or []
+
+            if isinstance(raw_teams, dict):
+                raw_teams = [raw_teams]
+
+            elif isinstance(raw_teams, str):
+                raw_teams = [raw_teams]
+
+            if not isinstance(raw_teams, list):
+                raw_teams = []
+
+            for team in raw_teams:
+
+                if isinstance(team, str):
+
+                    team = {
+                        "strTeam": team,
+                        "strSport": self.current_sport
+                    }
+
+                if not isinstance(team, dict):
+                    continue
+
+                name = team.get("strTeam")
+
+                if not name:
+                    continue
+
+                team_sport = team.get(
+                    "strSport",
+                    self.current_sport
+                )
+
+                if (
+                    team_sport.lower()
+                    != self.current_sport.lower()
+                ):
+                    continue
+
+                found_teams[name.lower()] = team
+
+        except RuntimeError as error:
+
+            QMessageBox.warning(
+                self,
+                "API Limit",
+                str(error)
+            )
+
+        except requests.RequestException as error:
+
+            QMessageBox.warning(
+                self,
+                "Connection Error",
+                str(error)
+            )
+
+        # Search the local NBA fallback list.
+
+        if self.current_sport == "Basketball":
+
+            for name in self.NBA_TEAMS:
+
+                if query.lower() in name.lower():
+
+                    if name.lower() not in found_teams:
+
+                        found_teams[name.lower()] = {
+                            "strTeam": name,
+                            "strSport": "Basketball",
+                            "strLeague": "NBA",
+                            "strCountry": "USA"
+                        }
+
+        for team in sorted(
+            found_teams.values(),
+            key=lambda t: t["strTeam"].lower()
+        ):
+
+            item = QListWidgetItem(
+                f"🏆 {team['strTeam']}"
+            )
+
+            item.setData(Qt.UserRole, team)
+
+            self.team_list.addItem(item)
+
+        if self.team_list.count() == 0:
+
+            self.status_label.setText(
+                "No matching teams found."
+            )
+
+        else:
+
+            self.status_label.setText(
+                f"Found {self.team_list.count()} team(s)."
+            )
+
+    # =====================================
+    # DISPLAY TEAM INFORMATION
+    # =====================================
+
+    def show_team_details(self, item):
+
+        team = item.data(Qt.UserRole)
+
+        if not isinstance(team, dict):
+            return
+
+        name = team.get(
+            "strTeam",
+            "Unknown"
+        )
+
+        sport = team.get(
+            "strSport",
+            self.current_sport
+        )
+
+        league = team.get(
+            "strLeague",
+            "Not available"
+        )
+
+        stadium = team.get(
+            "strStadium",
+            "Not available"
+        )
+
+        country = team.get(
+            "strCountry",
+            "Not available"
+        )
+
+        founded = team.get(
+            "intFormedYear",
+            "Not available"
+        )
+
+        description = team.get(
+            "strDescriptionEN",
+            "No description available."
+        ) or "No description available."
+
+        self.info_label.setText(
+            f"Sport: {sport}\n\n"
+            f"League: {league}\n\n"
+            f"Stadium: {stadium}\n\n"
+            f"Country: {country}\n\n"
+            f"Founded: {founded}\n\n"
+            f"{description}"
+        )
+
+        self.team_name_label.setText(name)
+
+        self.load_team_logo(
+            team.get("strBadge")
+        )
+
+        self.status_label.setText(
+            f"Now viewing {name}."
+        )
+
+    # =====================================
+    # TEAM LOGO
+    # =====================================
+
+    def load_team_logo(self, url):
+
+        self.logo_label.clear()
+
+        if not url:
+
+            self.logo_label.setText(
+                "No team logo available"
+            )
+
+            return
+
+        pixmap = self.download_image(url)
+
+        if pixmap:
+
+            self.logo_label.setPixmap(
+                pixmap.scaled(
+                    220,
+                    180,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+            )
+
+        else:
+
+            self.logo_label.setText(
+                "Team logo unavailable"
+            )
+
+    # =====================================
+    # CLEAR TEAM INFORMATION
+    # =====================================
+
+    def clear_team_details(self):
+
+        self.info_label.setText(
+            "Select a team to view its information."
+        )
+
+        self.logo_label.setText("Team logo")
+
+        self.team_name_label.clear()
+
+
+# =====================================
+# RUN APPLICATION
+# =====================================
+
+if __name__ == "__main__":
+
+    app = QApplication(sys.argv)
+
+    window = SportsExplorer()
+
+    window.show()
+
+    sys.exit(app.exec_())
